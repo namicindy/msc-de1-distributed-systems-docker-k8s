@@ -1,0 +1,29 @@
+services:
+  flask-app:
+    build: .
+    image: naomicindy/msc-de1-flask-app:1.0.0
+    container_name: msc-de1-flask-app
+
+    ports:
+      - "5000:5000"
+
+    restart: unless-stopped
+
+    environment:
+      - FLASK_ENV=production
+      - PYTHONUNBUFFERED=1
+
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0) if urllib.request.urlopen('http://127.0.0.1:5000/', timeout=2).status==200 else sys.exit(1)"]
+      interval: 30s
+      timeout: 3s
+      start_period: 5s
+      retries: 3
+
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    read_only: true
+    tmpfs:
+      - /tmp
