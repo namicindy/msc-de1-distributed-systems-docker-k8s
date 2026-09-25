@@ -1,15 +1,10 @@
 # msc-de1-distributed-systems-docker-k8s
 
-Containerization, security, deployment, and local orchestration of the application:
-[UBC Flask Sample App] https://github.com/ubc/flask-sample-app.
+Containerization, security hardening, publication and local orchestration of the [UBC Flask Sample App](https://github.com/ubc/flask-sample-app).
 
 ## 1. Objective and architecture
 
-A minimal Flask REST API (routes `/`, `/items`, `/items/{id}`) with no
-Dockerfile in the original repository. This repository adds:
-Dockerfile → Docker Hub image → local `kind` cluster (1 control-plane +
-2 workers) → Kubernetes Deployment (2 replicas, probes, security
-hardening, NetworkPolicy).
+A minimal Flask REST API (routes `/`, `/items`, `/items/{id}`) with no Dockerfile in the original repository. This repository adds: Dockerfile → Docker Hub image → local `kind` cluster (1 control-plane + 2 workers) → Kubernetes Deployment (2 replicas, probes, security hardening, NetworkPolicy).
 
 ## 2. Original starter repository
 
@@ -88,7 +83,32 @@ curl.exe http://localhost:5000/
 curl.exe http://localhost:5000/items
 ```
 
-## 11. Clean up the local cluster
+## 11. Distributed systems demonstrations
+
+```bash
+# A. Replication and service discovery
+kubectl get pods -n msc-de1-project -o wide
+# -> 2 pods Running, scheduled on different worker nodes
+
+# B. Self-healing
+kubectl delete pod <pod-name> -n msc-de1-project
+kubectl get pods -n msc-de1-project -w
+# -> the Deployment automatically recreates a replacement pod
+
+# C. Scaling
+kubectl scale deployment flask-app --replicas=3 -n msc-de1-project
+kubectl get pods -n msc-de1-project
+kubectl scale deployment flask-app --replicas=2 -n msc-de1-project
+
+# D. Rolling update and rollback
+kubectl set image deployment/flask-app flask-app=naomicindy/msc-de1-flask-app:1.0.1 -n msc-de1-project
+kubectl rollout status deployment/flask-app -n msc-de1-project
+kubectl rollout history deployment/flask-app -n msc-de1-project
+kubectl rollout undo deployment/flask-app -n msc-de1-project
+kubectl rollout status deployment/flask-app -n msc-de1-project
+```
+
+## 12. Clean up the local cluster
 
 ```bash
 kind delete cluster --name msc-de1-cluster
@@ -96,9 +116,8 @@ kind delete cluster --name msc-de1-cluster
 
 ## Security decisions and known limitations
 
-- The application runs as a non-root user (UID 1000) inside the Docker image (`USER 1000:1000`), and will be configured the same
-  way in Kubernetes.
-- Debian system packages are patched at build time (`apt-get upgrade`), along with `pip`/`setuptools`/`wheel`, and the base image was upgraded to `python:3.12-slim` — reducing findings from 131 to 32 detected by `docker scout` (0 CRITICAL remaining). Full detail in
-  `security/vulnerability-scan.txt`.
+- The application runs as a non-root user (UID 1000) inside the Docker image (`USER 1000:1000`) and in Kubernetes (`runAsNonRoot`, `runAsUser: 1000`), with `allowPrivilegeEscalation: false`, `capabilities.drop: [ALL]`, `seccompProfile: RuntimeDefault` and `readOnlyRootFilesystem: true` (an `emptyDir` volume on `/tmp` compensates for the few temporary writes gunicorn may need).
+- Debian system packages are patched at build time (`apt-get upgrade`), along with `pip` `setuptools`/`wheel`, and the base image was upgraded to `python:3.12-slim` — reducing findings from 131 to 32 detected by `docker scout` (0 CRITICAL remaining). Full detail in `security/vulnerability-scan.txt`.
 - gunicorn (added to `requirements.txt`) replaces Flask's development server for production-oriented execution.
-- **Known and documented limitation**: item storage is in-memory (no database), so each worker/pod has its own separate memory — an item added on one instance is not visible from another. For this reason the local container runs with `--workers 1` for consistent manual testing; this same limitation will be revisited in the Kubernetes section, where it applies across the 2 replicas.
+- **Known and documented limitation**: item storage is in-memory (no database), so each worker/pod has its own separate memory — an item added on one instance is not visible from another. This applies both to gunicorn workers within a single container and to the 2 Kubernetes replicas. Not fixed, as it is a design constraint of the original application, outside this project's scope — documented here rather than silently worked around.
+- **kind's default CNI (kindnetd) does not enforce NetworkPolicy** at the data-plane level — the policy in `k8s/network-policy.yaml` documents the intended network segmentation, but actual enforcement would require a compatible CNI such as Calico.
